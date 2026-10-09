@@ -1,0 +1,26 @@
+# Dependencies and caches
+node_modules/
+__pycache__/
+*.pyc
+.cache/
+.parcel-cache/
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Working files that should not be published
+*.tmp
+*.zip
+*.npy
+*.pb
+site.html
