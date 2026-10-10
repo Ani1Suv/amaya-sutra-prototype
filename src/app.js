@@ -38,7 +38,8 @@ const state = {
   cart: store.get("as-cart", []),
   filters: { cats: [], sizes: [], colours: [], prices: [], fits: [], q: "" },
   sort: "featured",
-  shopCat: "all"
+  shopCat: "all",
+  buyNow: null   // { slug, size, qty } while a Buy Now checkout is open; the bag is left untouched
 };
 const emptyFilters = () => ({ cats: [], sizes: [], colours: [], prices: [], fits: [], q: "" });
 
@@ -602,6 +603,7 @@ function Product(slug) {
         <div class="buy-actions">
           <div class="qty" aria-label="Quantity"><button data-act="pdp-qty" data-d="-1" aria-label="Decrease quantity">${ICON.minus}</button><output id="pdpQty">${pdp.qty}</output><button data-act="pdp-qty" data-d="1" aria-label="Increase quantity">${ICON.plus}</button></div>
           <button class="btn btn-solid" data-act="pdp-add" data-slug="${p.slug}">Add to Bag · <span class="price">${inr(p.price)}</span></button>
+          <button class="btn btn-line btn-buy" data-act="pdp-buy" data-slug="${p.slug}">Buy Now</button>
         </div>
         <form class="pin" id="pinForm" novalidate>
           <label for="pinIn" class="label" style="color:var(--ink)">Check delivery <span class="placeholder-tag" style="margin-left:6px">Demo</span></label>
@@ -633,7 +635,9 @@ function Product(slug) {
 
 /* --- other pages --- */
 function Checkout() {
-  const items = state.cart;
+  const buying = !!state.buyNow;
+  const items = buying ? [state.buyNow] : state.cart;
+  const subtotal = items.reduce((n, i) => n + i.qty * bySlug(i.slug).price, 0);
   if (!items.length) return `<div class="wrap page"><div class="empty"><span class="label">Checkout preview</span><h3>Your bag is empty.</h3><p>Add a shirt to preview the checkout flow.</p><a class="btn btn-solid" href="#shop">Shop Shirts</a></div></div>`;
   return `
   <div class="wrap page">
@@ -642,7 +646,8 @@ function Checkout() {
       <div class="callout"><strong>Prototype</strong>This screen shows how checkout could be laid out. No payment is taken, no order is created and the fields below are disabled. The live store would use the Shopify or Wix checkout.</div></div>
     <div class="checkout" id="coWrap">
       <div>
-        <ol class="steps"><li class="done">Bag</li><li class="on" aria-current="step">Details</li><li>Payment</li></ol>
+        ${buying ? `<p class="buynow-note"><span class="placeholder-tag">Buy Now</span> Checking out this shirt only. Your bag is unchanged.</p>` : ""}
+        <ol class="steps"><li class="done">${buying ? "Item" : "Bag"}</li><li class="on" aria-current="step">Details</li><li>Payment</li></ol>
         <div class="co-fields" aria-disabled="true">
           <label class="full">Email<input disabled placeholder="name@example.com"></label>
           <label>First name<input disabled placeholder="First name"></label>
@@ -655,9 +660,9 @@ function Checkout() {
         <div style="display:flex;gap:12px;flex-wrap:wrap"><button class="btn btn-solid" data-act="finish-preview">Finish preview</button><a class="btn btn-line" href="#shop">Continue shopping</a></div>
       </div>
       <aside class="summary" aria-label="Order summary">
-        <h2 class="label" style="color:var(--ink)">Bag summary</h2>
+        <h2 class="label" style="color:var(--ink)">${buying ? "Order summary" : "Bag summary"}</h2>
         ${items.map(i => { const p = bySlug(i.slug); return `<div class="line-item">${Media(imagesOf(p)[0], p, { decorative: true, small: true })}<div><div class="li-top"><span>${esc(p.name)}</span><span class="price">${inr(p.price * i.qty)}</span></div><div class="li-meta">${esc(p.colour)} · Size ${i.size} · Qty ${i.qty}</div></div></div>`; }).join("")}
-        <div class="sub-row"><span>Subtotal</span><span>${inr(Cart.subtotal())}</span></div>
+        <div class="sub-row"><span>Subtotal</span><span>${inr(subtotal)}</span></div>
         <p class="fine">Shipping and taxes would be calculated by the store's checkout.</p>
       </aside>
     </div>
@@ -849,7 +854,7 @@ function QuickView(slug, carrySize) {
       <div><div class="buy-row-label"><span>Colour: <strong id="qvColour">${esc(p.colour)}</strong></span></div><div class="colour-opts" role="group" aria-label="Choose colour">${ColourOptions(p, "qv-colour")}</div></div>
       <div><div class="buy-row-label"><span>Size: <strong id="qvSizeLabel">${keep ? keep + " · " + SIZES.find(x => x.k === keep).label : "Select a size"}</strong></span><button class="link-u fine" data-act="size-guide" style="color:var(--ink)">Size guide</button></div>
         <div class="size-opts" id="qvSizes">${SizeButtons(p, keep, "qv-size")}</div><p class="size-err" id="qvErr" role="alert" ${note ? "" : "hidden"}>${note || "Please select a size."}</p></div>
-      <button class="btn btn-solid btn-block" data-act="qv-add" data-slug="${p.slug}">Add ${esc(p.colour)} to Bag</button>
+      <div class="qv-actions"><button class="btn btn-solid btn-block" data-act="qv-add" data-slug="${p.slug}">Add ${esc(p.colour)} to Bag</button><button class="btn btn-line btn-block" data-act="qv-buy" data-slug="${p.slug}">Buy Now</button></div>
       <a class="link-arrow" href="#product-${p.slug}" data-act="continue" data-href="#product-${p.slug}" style="justify-self:start">View full details →</a>
     </div></div>`;
 }
@@ -896,6 +901,7 @@ function route() {
   else if (h.startsWith("info-")) html = Info(h.slice(5));
   else if (h === "collections") { location.hash = "#home"; return; }
   else html = NotFound();
+  if (view !== "checkout") state.buyNow = null;
   const prevView = currentView;
   currentView = view;
   $("#app").innerHTML = html;
@@ -953,7 +959,7 @@ document.addEventListener("click", e => {
     case "search": openLayer("searchPanel"); renderSearch(); break;
     case "filters": openLayer("filterDrawer"); break;
     case "close": closeLayers(); break;
-    case "continue": e.preventDefault(); go(t.dataset.href); break;
+    case "continue": e.preventDefault(); if (t.dataset.href === "#checkout") state.buyNow = null; go(t.dataset.href); break;
     case "scroll": e.preventDefault(); { const el = document.getElementById(t.dataset.target); if (el) el.scrollIntoView({ behavior: "smooth" }); } break;
     case "quick-add": {
       e.preventDefault(); const p = bySlug(t.dataset.slug);
@@ -997,6 +1003,17 @@ document.addEventListener("click", e => {
       { const slug = $(".gallery") ? $(".gallery").dataset.slug : t.dataset.slug; // the variant currently shown
         Cart.add(slug, pdp.size, pdp.qty); openLayer("cartDrawer"); }
       break;
+    case "pdp-buy": {
+      // Buy Now: same size check as Add to Bag, then straight to checkout with this shirt only.
+      if (!pdp.size) { $("#sizeErr").hidden = false; $("#sizeOpts").scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+      const slug = $(".gallery") ? $(".gallery").dataset.slug : t.dataset.slug;
+      state.buyNow = { slug, size: pdp.size, qty: pdp.qty };
+      go("#checkout"); break;
+    }
+    case "qv-buy":
+      if (!qv.size) { $("#qvErr").hidden = false; return; }
+      state.buyNow = { slug: qv.slug, size: qv.size, qty: 1 };
+      go("#checkout"); break;
     case "gal": setImg(Number(t.dataset.i)); break;
     case "slide-go": Carousel.go(Number(t.dataset.i), true); break;
     case "slide-step": Carousel.go(Carousel.i + Number(t.dataset.d), true); break;
@@ -1022,7 +1039,7 @@ document.addEventListener("click", e => {
     }
     case "finish-preview":
       $("#coWrap").innerHTML = `<div class="done-box" style="grid-column:1/-1"><span class="label">Preview complete</span><h2>That is the end of the checkout preview.</h2>
-        <p style="color:var(--ink-2);max-width:60ch">No order has been placed and nothing has been charged. In the live store, this step would hand over to the Shopify or Wix checkout for payment and confirmation. Your bag has been kept so you can continue the demo.</p>
+        <p style="color:var(--ink-2);max-width:60ch">No order has been placed and nothing has been charged. In the live store, this step would hand over to the Shopify or Wix checkout for payment and confirmation. ${state.buyNow ? "Your bag was not changed." : "Your bag has been kept so you can continue the demo."}</p>
         <div style="display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-solid" href="#shop">Continue shopping</a><a class="btn btn-line" href="#home">Back to home</a></div></div>`;
       window.scrollTo({ top: 0, behavior: "smooth" }); break;
     case "social": e.preventDefault(); toast(t.dataset.net + " link is a placeholder until the handle is confirmed"); break;
